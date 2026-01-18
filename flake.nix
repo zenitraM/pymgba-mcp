@@ -218,8 +218,8 @@ except: pass' || true
             ${lib.optionalString (!pkgs.stdenv.isDarwin) ''
               export LD_LIBRARY_PATH="${mgba-with-python}/lib"
             ''}
-            export PYTHONPATH="${mgba-with-python}/${python.sitePackages}:${PYTHONPATH:-}"
-            exec uv run pymgba-mcp "$@"
+            export PYTHONPATH="${self}/src:${mgba-with-python}/${python.sitePackages}:${PYTHONPATH:-}"
+            exec ${pythonEnv}/bin/python -m pymgba_mcp.server "$@"
           '';
         };
 
