@@ -1,0 +1,17 @@
+[project]
+name = "pymgba-mcp"
+version = "0.1.0"
+description = "MCP server for mGBA emulator using native Python bindings"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+pymgba-mcp = "pymgba_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
