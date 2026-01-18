@@ -4,8 +4,6 @@ This is a vibecoded Python-based MCP (Model Context Protocol) server for the mGB
 
 It also ships as a Nix flake, to build mGBA and the Python bindings all together for a portable, easy to reproduce setup.
 
-(Note: only tested on Linux so far)
-
 ## Features
 
 - **Native Python bindings**: Uses mGBA's built-in Python API instead of spawning external processes
