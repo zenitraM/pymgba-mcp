@@ -11,11 +11,15 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         python = pkgs.python312;
+        lib = pkgs.lib;
 
         # Build mGBA from source with Python bindings
         mgba-with-python = pkgs.stdenv.mkDerivation rec {
           pname = "mgba-with-python";
           version = "0.11-dev";
+
+          MACOSX_DEPLOYMENT_TARGET = lib.optionalString pkgs.stdenv.isDarwin "14.0";
+          NIX_CFLAGS_COMPILE = lib.optionalString pkgs.stdenv.isDarwin "-mmacosx-version-min=14.0";
 
           src = pkgs.fetchFromGitHub {
             owner = "mgba-emu";
@@ -28,12 +32,12 @@
           nativeBuildInputs = with pkgs; [
             cmake
             pkg-config
+          ] ++ lib.optionals (!pkgs.stdenv.isDarwin) [
             patchelf
           ];
 
           buildInputs = with pkgs; [
             # Core mGBA dependencies
-            elfutils
             libzip
             zlib
             libpng
@@ -49,6 +53,8 @@
             python.pkgs.cached-property
             python.pkgs.setuptools
             python.pkgs.pip
+          ] ++ lib.optionals (!pkgs.stdenv.isDarwin) [
+            elfutils
           ];
 
           cmakeFlags = [
@@ -63,13 +69,22 @@
             "-DUSE_PNG=ON"
             "-DUSE_ZLIB=ON"
             "-DUSE_LIBZIP=ON"
-            "-DUSE_ELF=ON"
             "-DUSE_SQLITE3=ON"
             "-DENABLE_VFS=ON"
             # CRITICAL: ENABLE_DIRECTORIES is added to ENABLES list when VFS is on,
             # but the cmake variable isn't set, so flags.h doesn't get it.
             # We must set it explicitly so flags.h matches the library's struct layout.
             "-DENABLE_DIRECTORIES=ON"
+          ]
+          ++ lib.optionals pkgs.stdenv.isDarwin [
+            "-DUSE_ELF=OFF"
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0"
+            "-DBUILD_GL=OFF"
+            "-DBUILD_GLES2=OFF"
+            "-DBUILD_GLES3=OFF"
+          ]
+          ++ lib.optionals (!pkgs.stdenv.isDarwin) [
+            "-DUSE_ELF=ON"
           ];
 
           # Patch the setup.py before building to fix version detection
@@ -133,7 +148,14 @@ except: pass' || true
             mkdir -p $out/${python.sitePackages}
 
             # Copy the shared library
+            if [ -f "libmgba.dylib" ]; then
+              cp libmgba.dylib $out/lib/ || true
+            fi
             cp libmgba.so* $out/lib/ || true
+
+            if [ -f "$out/lib/libmgba.dylib" ]; then
+              ln -sfn libmgba.dylib $out/lib/libmgba.0.11.dylib
+            fi
 
             # Copy headers
             cp -r $src/include/* $out/include/
@@ -144,20 +166,24 @@ except: pass' || true
 
             # Copy Python package from the build directory
             # The mgba-py target builds to python/lib.*/mgba/
-            if [ -d "python/lib.linux-x86_64-cpython-312/mgba" ]; then
-              cp -r python/lib.linux-x86_64-cpython-312/mgba $out/${python.sitePackages}/
-            fi
-            
-            # Fix the RPATH on the Python extension to point to our lib directory
-            for pyfile in $out/${python.sitePackages}/mgba/*.so; do
-              patchelf --set-rpath "$out/lib" "$pyfile" 2>/dev/null || true
+            for mgba_dir in python/lib.*-cp*/mgba; do
+              if [ -d "$mgba_dir" ]; then
+                cp -r "$mgba_dir" $out/${python.sitePackages}/
+              fi
             done
+
+            ${lib.optionalString (!pkgs.stdenv.isDarwin) ''
+              # Fix the RPATH on the Python extension to point to our lib directory (Linux)
+              for pyfile in $out/${python.sitePackages}/mgba/*.so; do
+                patchelf --set-rpath "$out/lib" "$pyfile" 2>/dev/null || true
+              done
+            ''}
 
             runHook postInstall
           '';
 
           # Wrap the library path
-          postFixup = ''
+          postFixup = lib.optionalString (!pkgs.stdenv.isDarwin) ''
             for pyfile in $out/${python.sitePackages}/mgba/*.so; do
               patchelf --set-rpath "$out/lib:${pkgs.lib.makeLibraryPath buildInputs}" "$pyfile" 2>/dev/null || true
             done
@@ -186,7 +212,12 @@ except: pass' || true
             mgba-with-python
           ];
           text = ''
-            export LD_LIBRARY_PATH="${mgba-with-python}/lib"
+            ${lib.optionalString pkgs.stdenv.isDarwin ''
+              export DYLD_LIBRARY_PATH="${mgba-with-python}/lib"
+            ''}
+            ${lib.optionalString (!pkgs.stdenv.isDarwin) ''
+              export LD_LIBRARY_PATH="${mgba-with-python}/lib"
+            ''}
             export PYTHONPATH="${mgba-with-python}/${python.sitePackages}:$PYTHONPATH"
             exec uv run pymgba-mcp "$@"
           '';
@@ -216,7 +247,8 @@ except: pass' || true
           ];
 
           # Ensure the mgba library and Python module are found
-          LD_LIBRARY_PATH = "${mgba-with-python}/lib";
+          LD_LIBRARY_PATH = lib.optionalString (!pkgs.stdenv.isDarwin) "${mgba-with-python}/lib";
+          DYLD_LIBRARY_PATH = lib.optionalString pkgs.stdenv.isDarwin "${mgba-with-python}/lib";
 
           shellHook = ''
             echo "pymgba-mcp development shell"
