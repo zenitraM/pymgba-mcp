@@ -201,6 +201,7 @@ except: pass' || true
         pythonEnv = python.withPackages (ps: [
           ps.cffi
           ps.cached-property
+          ps.mcp
           ps.pillow
         ]);
 
